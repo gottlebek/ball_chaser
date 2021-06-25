@@ -3,11 +3,19 @@
 #include <sensor_msgs/Image.h>
 #include <string>
 
-
+// Settings
 #define FORWARD_VELOCITY    (0.5f)
 #define ANGULAR_VELOCITY    (0.5f)
 #define STOP_VELOCITY       (0.0f)
+
+// White Pixel tolerance
 #define WHITE_PIXEL         (255u - 5u)
+
+// Defines for numberOfPixelsInAreas
+#define NUMBER_OF_AREAS     (3u)
+#define INDEX_AREA_LEFT     (0u)
+#define INDEX_AREA_CENTER   (1u)
+#define INDEX_AREA_RIGHT    (2u)
 
 // Define a global client that can request services
 ros::ServiceClient client;
@@ -15,9 +23,10 @@ ros::ServiceClient client;
 // This function calls the command_robot service to drive the robot in the specified direction
 void drive_robot(float lin_x, float ang_z)
 {
+    /* create new msg */
     ball_chaser::DriveToTarget msg;
     
-    // Request a service and pass the velocities to it to drive the robot
+    // add the function parameters to the msg
     msg.request.linear_x = lin_x;
     msg.request.angular_z = ang_z;
 
@@ -32,15 +41,21 @@ void drive_robot(float lin_x, float ang_z)
 // This callback function continuously executes and reads the image data
 void process_image_callback(const sensor_msgs::Image img)
 {
+    /* local variables */
     uint32_t pixelCounter = 0u;
     uint32_t stepCounter = 0u;
     uint32_t rowCounter = 0u;
     uint32_t columnCounter = 0u;
     uint32_t pixelRgb = 0u;
 
+    /* local variables which defines the areas in the image */
     uint32_t leftDirection = uint32_t(float(img.width) * (1.0f/3.0f));
     uint32_t forwardDirection = uint32_t(float(img.width) * (2.0f/3.0f));
 
+    /* local variable to count how many white pixels are detected in each area */
+    uint32_t numberOfPixelsInAreas[NUMBER_OF_AREAS] = {0u, 0u, 0u};
+
+    /* Ball detected flag */
     bool ballDetected = false;
 
     // Loop through each pixel in the image and check if there's a bright white one
@@ -72,29 +87,46 @@ void process_image_callback(const sensor_msgs::Image img)
                 /* in which area is the white pixel? */
                 if(columnCounter < leftDirection)
                 {
-                    /* the ball is on the left side */
-                    drive_robot(STOP_VELOCITY, ANGULAR_VELOCITY);
+                    /* a part of the ball is on the left side */
+                    numberOfPixelsInAreas[INDEX_AREA_LEFT]++;
                 }
                 else if(columnCounter < forwardDirection)
                 {
-                    /* the ball is in front of the robot */
-                    drive_robot(FORWARD_VELOCITY, STOP_VELOCITY);
+                    /* a part of the ball is in front of the robot */
+                    numberOfPixelsInAreas[INDEX_AREA_CENTER]++;
                 }
                 else
                 {
-                    /* the ball is on the right side */
-                    drive_robot(STOP_VELOCITY, ANGULAR_VELOCITY * -1.0f);
+                    /* a part of the ball is on the right side */
+                    numberOfPixelsInAreas[INDEX_AREA_RIGHT]++;
                 }
-
-                /* exit for-loop */
-                break;
             }
         }/* end for-loop stepCounter */
     }/* end for-loop rowCounter */
 
-    /* if no ball was detected, stop the robot */
-    if(ballDetected == false)
+    /* check if a ball was detected */
+    if(ballDetected)
     {
+        /* check in which image area are the most pixels of the ball */
+        if(numberOfPixelsInAreas[INDEX_AREA_LEFT] > numberOfPixelsInAreas[INDEX_AREA_CENTER] && numberOfPixelsInAreas[INDEX_AREA_LEFT] > numberOfPixelsInAreas[INDEX_AREA_RIGHT])
+        {
+            /* the ball is on the left side */
+            drive_robot(STOP_VELOCITY, ANGULAR_VELOCITY);
+        }
+        else if(numberOfPixelsInAreas[INDEX_AREA_CENTER] > numberOfPixelsInAreas[INDEX_AREA_RIGHT])
+        {
+            /* the ball is in front of the robot */
+            drive_robot(FORWARD_VELOCITY, STOP_VELOCITY);
+        }
+        else
+        {
+            /* the ball is on the right side */
+            drive_robot(STOP_VELOCITY, ANGULAR_VELOCITY * -1.0f);
+        }
+    }
+    else
+    {
+        /* Ball wasn't detected so stop the robot. */
         drive_robot(STOP_VELOCITY, STOP_VELOCITY);
     }
 }
